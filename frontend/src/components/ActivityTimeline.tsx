@@ -52,11 +52,17 @@ export function ActivityTimeline({
     return <Activity className="h-4 w-4 text-neutral-400" />;
   };
 
+  // Only auto-collapse when loading is completely done AND we have events
+  // This prevents collapsing during streaming when isLoading might flicker
   useEffect(() => {
-    if (!isLoading && processedEvents.length !== 0) {
-      setIsTimelineCollapsed(true);
+    if (!isLoading && processedEvents.length > 0) {
+      // Add a delay to ensure streaming is really done
+      const timer = setTimeout(() => {
+        setIsTimelineCollapsed(true);
+      }, 500);
+      return () => clearTimeout(timer);
     }
-  }, [isLoading, processedEvents]);
+  }, [isLoading, processedEvents.length]);
 
   return (
     <Card className="border-none rounded-lg bg-neutral-700 max-h-96">
@@ -66,11 +72,16 @@ export function ActivityTimeline({
             className="flex items-center justify-start text-sm w-full cursor-pointer gap-2 text-neutral-100"
             onClick={() => setIsTimelineCollapsed(!isTimelineCollapsed)}
           >
-            Research
+            Research Activity
             {isTimelineCollapsed ? (
               <ChevronDown className="h-4 w-4 mr-2" />
             ) : (
               <ChevronUp className="h-4 w-4 mr-2" />
+            )}
+            {processedEvents.length > 0 && (
+              <span className="text-xs text-neutral-400">
+                ({processedEvents.length} events)
+              </span>
             )}
           </div>
         </CardDescription>
@@ -123,7 +134,7 @@ export function ActivityTimeline({
                     </div>
                     <div>
                       <p className="text-sm text-neutral-300 font-medium">
-                        Searching...
+                        Processing...
                       </p>
                     </div>
                   </div>
