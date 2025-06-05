@@ -162,9 +162,6 @@ const HumanMessageBubble: React.FC<HumanMessageBubbleProps> = ({
 interface AiMessageBubbleProps {
   message: Message;
   historicalActivity: ProcessedEvent[] | undefined;
-  liveActivity: ProcessedEvent[] | undefined;
-  isLastMessage: boolean;
-  isOverallLoading: boolean;
   mdComponents: typeof mdComponents;
   handleCopy: (text: string, messageId: string) => void;
   copiedMessageId: string | null;
@@ -174,25 +171,17 @@ interface AiMessageBubbleProps {
 const AiMessageBubble: React.FC<AiMessageBubbleProps> = ({
   message,
   historicalActivity,
-  liveActivity,
-  isLastMessage,
-  isOverallLoading,
   mdComponents,
   handleCopy,
   copiedMessageId,
 }) => {
-  // Determine which activity events to show and if it's for a live loading message
-  const activityForThisBubble =
-    isLastMessage && isOverallLoading ? liveActivity : historicalActivity;
-  const isLiveActivityForThisBubble = isLastMessage && isOverallLoading;
-
   return (
     <div className={`relative break-words flex flex-col`}>
-      {activityForThisBubble && activityForThisBubble.length > 0 && (
+      {historicalActivity && historicalActivity.length > 0 && (
         <div className="mb-3 border-b border-neutral-700 pb-3 text-xs">
           <ActivityTimeline
-            processedEvents={activityForThisBubble}
-            isLoading={isLiveActivityForThisBubble}
+            processedEvents={historicalActivity}
+            isLoading={false}
           />
         </div>
       )}
@@ -251,12 +240,14 @@ export function ChatMessagesView({
     }
   };
 
+  // Show live events if we have any and are loading
+  const shouldShowLiveEvents = isLoading && liveActivityEvents.length > 0;
+
   return (
     <div className="flex flex-col h-full">
       <ScrollArea className="flex-grow" ref={scrollAreaRef}>
         <div className="p-4 md:p-6 space-y-2 max-w-4xl mx-auto pt-16">
           {messages.map((message, index) => {
-            const isLast = index === messages.length - 1;
             return (
               <div key={message.id || `msg-${index}`} className="space-y-3">
                 <div
@@ -273,9 +264,6 @@ export function ChatMessagesView({
                     <AiMessageBubble
                       message={message}
                       historicalActivity={historicalActivities[message.id!]}
-                      liveActivity={liveActivityEvents} // Pass global live events
-                      isLastMessage={isLast}
-                      isOverallLoading={isLoading} // Pass global loading state
                       mdComponents={mdComponents}
                       handleCopy={handleCopy}
                       copiedMessageId={copiedMessageId}
@@ -285,29 +273,32 @@ export function ChatMessagesView({
               </div>
             );
           })}
-          {isLoading &&
-            (messages.length === 0 ||
-              messages[messages.length - 1].type === "human") && (
-              <div className="flex items-start gap-3 mt-3">
-                {" "}
-                {/* AI message row structure */}
-                <div className="relative group max-w-[85%] md:max-w-[80%] rounded-xl p-3 shadow-sm break-words bg-neutral-800 text-neutral-100 rounded-bl-none w-full min-h-[56px]">
-                  {liveActivityEvents.length > 0 ? (
-                    <div className="text-xs">
-                      <ActivityTimeline
-                        processedEvents={liveActivityEvents}
-                        isLoading={true}
-                      />
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-start h-full">
-                      <Loader2 className="h-5 w-5 animate-spin text-neutral-400 mr-2" />
-                      <span>Processing...</span>
-                    </div>
-                  )}
+          
+          {/* Show live events in a separate section while loading */}
+          {shouldShowLiveEvents && (
+            <div className="flex items-start gap-3 mt-3">
+              <div className="relative group max-w-[85%] md:max-w-[80%] rounded-xl p-3 shadow-sm break-words bg-neutral-800 text-neutral-100 rounded-bl-none w-full">
+                <div className="text-xs">
+                  <ActivityTimeline
+                    processedEvents={liveActivityEvents}
+                    isLoading={true}
+                  />
                 </div>
               </div>
-            )}
+            </div>
+          )}
+          
+          {/* Show loading spinner if loading but no events yet */}
+          {isLoading && liveActivityEvents.length === 0 && (
+            <div className="flex items-start gap-3 mt-3">
+              <div className="relative group max-w-[85%] md:max-w-[80%] rounded-xl p-3 shadow-sm break-words bg-neutral-800 text-neutral-100 rounded-bl-none w-full min-h-[56px]">
+                <div className="flex items-center justify-start h-full">
+                  <Loader2 className="h-5 w-5 animate-spin text-neutral-400 mr-2" />
+                  <span>Processing...</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </ScrollArea>
       <InputForm
