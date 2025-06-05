@@ -97,6 +97,8 @@ export default function App() {
           ...prev,
           [lastMessage.id!]: [...processedEventsTimeline],
         }));
+        // Clear the timeline events after moving them to historical
+        setProcessedEventsTimeline([]);
       }
       hasFinalizeEventOccurredRef.current = false;
     }
