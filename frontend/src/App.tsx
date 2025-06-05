@@ -14,6 +14,7 @@ export default function App() {
   >({});
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const hasFinalizeEventOccurredRef = useRef(false);
+  const lastAiMessageIdRef = useRef<string | null>(null);
 
   const thread = useStream<{
     messages: Message[];
@@ -27,7 +28,18 @@ export default function App() {
     assistantId: "agent",
     messagesKey: "messages",
     onFinish: (event: any) => {
-      console.log(event);
+      console.log("Stream finished:", event);
+      // Move events to historical when the stream is completely finished
+      if (hasFinalizeEventOccurredRef.current && lastAiMessageIdRef.current) {
+        setHistoricalActivities((prev) => ({
+          ...prev,
+          [lastAiMessageIdRef.current!]: [...processedEventsTimeline],
+        }));
+        // Clear the timeline events after moving them to historical
+        setProcessedEventsTimeline([]);
+        hasFinalizeEventOccurredRef.current = false;
+        lastAiMessageIdRef.current = null;
+      }
     },
     onUpdateEvent: (event: any) => {
       let processedEvent: ProcessedEvent | null = null;
@@ -74,6 +86,17 @@ export default function App() {
     },
   });
 
+  // Track the last AI message ID
+  useEffect(() => {
+    const aiMessages = thread.messages.filter(msg => msg.type === "ai");
+    if (aiMessages.length > 0) {
+      const lastAiMessage = aiMessages[aiMessages.length - 1];
+      if (lastAiMessage.id) {
+        lastAiMessageIdRef.current = lastAiMessage.id;
+      }
+    }
+  }, [thread.messages]);
+
   useEffect(() => {
     if (scrollAreaRef.current) {
       const scrollViewport = scrollAreaRef.current.querySelector(
@@ -85,30 +108,12 @@ export default function App() {
     }
   }, [thread.messages]);
 
-  useEffect(() => {
-    if (
-      hasFinalizeEventOccurredRef.current &&
-      !thread.isLoading &&
-      thread.messages.length > 0
-    ) {
-      const lastMessage = thread.messages[thread.messages.length - 1];
-      if (lastMessage && lastMessage.type === "ai" && lastMessage.id) {
-        setHistoricalActivities((prev) => ({
-          ...prev,
-          [lastMessage.id!]: [...processedEventsTimeline],
-        }));
-        // Clear the timeline events after moving them to historical
-        setProcessedEventsTimeline([]);
-      }
-      hasFinalizeEventOccurredRef.current = false;
-    }
-  }, [thread.messages, thread.isLoading, processedEventsTimeline]);
-
   const handleSubmit = useCallback(
     (submittedInputValue: string, effort: string, model: string) => {
       if (!submittedInputValue.trim()) return;
       setProcessedEventsTimeline([]);
       hasFinalizeEventOccurredRef.current = false;
+      lastAiMessageIdRef.current = null;
 
       // convert effort to, initial_search_query_count and max_research_loops
       // low means max 1 loop and 1 query
