@@ -12,6 +12,8 @@ export default function App() {
   const [historicalActivities, setHistoricalActivities] = useState<
     Record<string, ProcessedEvent[]>
   >({});
+  const [debugEvents, setDebugEvents] = useState<any[]>([]);
+  const [showDebug, setShowDebug] = useState(true);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const hasFinalizeEventOccurredRef = useRef(false);
   const lastAiMessageIdRef = useRef<string | null>(null);
@@ -29,6 +31,7 @@ export default function App() {
     messagesKey: "messages",
     onFinish: (event: any) => {
       console.log("Stream finished:", event);
+      setDebugEvents(prev => [...prev, { type: 'onFinish', event, timestamp: new Date().toISOString() }]);
       // Move events to historical when the stream is completely finished
       if (hasFinalizeEventOccurredRef.current && lastAiMessageIdRef.current) {
         console.log("Moving events to historical for message:", lastAiMessageIdRef.current);
@@ -44,9 +47,12 @@ export default function App() {
     },
     onError: (error: any) => {
       console.error("Stream error:", error);
+      setDebugEvents(prev => [...prev, { type: 'onError', error, timestamp: new Date().toISOString() }]);
     },
     onUpdateEvent: (event: any) => {
       console.log("Update event received:", event);
+      setDebugEvents(prev => [...prev, { type: 'onUpdateEvent', event, timestamp: new Date().toISOString() }]);
+      
       let processedEvent: ProcessedEvent | null = null;
       if (event.generate_query) {
         processedEvent = {
@@ -128,6 +134,7 @@ export default function App() {
     (submittedInputValue: string, effort: string, model: string) => {
       if (!submittedInputValue.trim()) return;
       setProcessedEventsTimeline([]);
+      setDebugEvents([]);
       hasFinalizeEventOccurredRef.current = false;
       lastAiMessageIdRef.current = null;
 
@@ -202,6 +209,48 @@ export default function App() {
           )}
         </div>
       </main>
+      
+      {/* Debug Panel */}
+      {showDebug && (
+        <div className="fixed bottom-0 right-0 w-96 h-96 bg-neutral-900 border border-neutral-700 rounded-tl-lg overflow-hidden flex flex-col">
+          <div className="p-2 bg-neutral-800 flex justify-between items-center">
+            <span className="text-xs font-mono">Debug Panel</span>
+            <button 
+              onClick={() => setShowDebug(false)}
+              className="text-xs hover:text-neutral-400"
+            >
+              Close
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-2 text-xs font-mono">
+            <div className="mb-2 text-yellow-400">
+              Timeline Events: {processedEventsTimeline.length}
+            </div>
+            <div className="mb-2 text-green-400">
+              Loading: {thread.isLoading ? 'true' : 'false'}
+            </div>
+            <div className="border-t border-neutral-700 mt-2 pt-2">
+              <div className="text-blue-400 mb-1">Raw Events:</div>
+              {debugEvents.map((item, index) => (
+                <div key={index} className="mb-2 border-b border-neutral-800 pb-1">
+                  <div className="text-yellow-300">{item.type} @ {item.timestamp}</div>
+                  <pre className="text-[10px] overflow-x-auto">
+                    {JSON.stringify(item.event || item.error, null, 2)}
+                  </pre>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      {!showDebug && (
+        <button 
+          onClick={() => setShowDebug(true)}
+          className="fixed bottom-4 right-4 bg-neutral-700 hover:bg-neutral-600 px-3 py-1 rounded text-xs"
+        >
+          Show Debug
+        </button>
+      )}
     </div>
   );
 }
