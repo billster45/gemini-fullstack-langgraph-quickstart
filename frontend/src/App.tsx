@@ -15,6 +15,7 @@ export default function App() {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const hasFinalizeEventOccurredRef = useRef(false);
   const lastAiMessageIdRef = useRef<string | null>(null);
+  const isStreamingRef = useRef(false);
 
   const thread = useStream<{
     messages: Message[];
@@ -27,10 +28,16 @@ export default function App() {
       : "http://localhost:8123",
     assistantId: "agent",
     messagesKey: "messages",
+    onStart: () => {
+      console.log("Stream started");
+      isStreamingRef.current = true;
+    },
     onFinish: (event: any) => {
       console.log("Stream finished:", event);
+      isStreamingRef.current = false;
       // Move events to historical when the stream is completely finished
       if (hasFinalizeEventOccurredRef.current && lastAiMessageIdRef.current) {
+        console.log("Moving events to historical for message:", lastAiMessageIdRef.current);
         setHistoricalActivities((prev) => ({
           ...prev,
           [lastAiMessageIdRef.current!]: [...processedEventsTimeline],
@@ -41,7 +48,12 @@ export default function App() {
         lastAiMessageIdRef.current = null;
       }
     },
+    onError: (error: any) => {
+      console.error("Stream error:", error);
+      isStreamingRef.current = false;
+    },
     onUpdateEvent: (event: any) => {
+      console.log("Update event received:", event);
       let processedEvent: ProcessedEvent | null = null;
       if (event.generate_query) {
         processedEvent = {
@@ -78,10 +90,12 @@ export default function App() {
         hasFinalizeEventOccurredRef.current = true;
       }
       if (processedEvent) {
-        setProcessedEventsTimeline((prevEvents) => [
-          ...prevEvents,
-          processedEvent!,
-        ]);
+        console.log("Adding processed event:", processedEvent);
+        setProcessedEventsTimeline((prevEvents) => {
+          const newEvents = [...prevEvents, processedEvent!];
+          console.log("Updated timeline events:", newEvents);
+          return newEvents;
+        });
       }
     },
   });
@@ -107,6 +121,16 @@ export default function App() {
       }
     }
   }, [thread.messages]);
+
+  // Debug logging
+  useEffect(() => {
+    console.log("Current state:", {
+      isLoading: thread.isLoading,
+      isStreaming: isStreamingRef.current,
+      eventsCount: processedEventsTimeline.length,
+      events: processedEventsTimeline,
+    });
+  }, [thread.isLoading, processedEventsTimeline]);
 
   const handleSubmit = useCallback(
     (submittedInputValue: string, effort: string, model: string) => {
@@ -159,6 +183,9 @@ export default function App() {
     window.location.reload();
   }, [thread]);
 
+  // Use either the streaming ref or the thread.isLoading state
+  const isCurrentlyLoading = isStreamingRef.current || thread.isLoading;
+
   return (
     <div className="flex h-screen bg-neutral-800 text-neutral-100 font-sans antialiased">
       <main className="flex-1 flex flex-col overflow-hidden max-w-4xl mx-auto w-full">
@@ -170,13 +197,13 @@ export default function App() {
           {thread.messages.length === 0 ? (
             <WelcomeScreen
               handleSubmit={handleSubmit}
-              isLoading={thread.isLoading}
+              isLoading={isCurrentlyLoading}
               onCancel={handleCancel}
             />
           ) : (
             <ChatMessagesView
               messages={thread.messages}
-              isLoading={thread.isLoading}
+              isLoading={isCurrentlyLoading}
               scrollAreaRef={scrollAreaRef}
               onSubmit={handleSubmit}
               onCancel={handleCancel}
