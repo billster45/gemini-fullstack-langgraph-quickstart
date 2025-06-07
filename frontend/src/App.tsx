@@ -16,7 +16,6 @@ export default function App() {
   const [showDebug, setShowDebug] = useState(true);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const hasFinalizeEventOccurredRef = useRef(false);
-  const lastAiMessageIdRef = useRef<string | null>(null);
 
   const thread = useStream<{
     messages: Message[];
@@ -32,83 +31,107 @@ export default function App() {
     onFinish: (event: any) => {
       console.log("Stream finished:", event);
       setDebugEvents(prev => [...prev, { type: 'onFinish', event, timestamp: new Date().toISOString() }]);
-      // Move events to historical when the stream is completely finished
-      if (hasFinalizeEventOccurredRef.current && lastAiMessageIdRef.current) {
-        console.log("Moving events to historical for message:", lastAiMessageIdRef.current);
-        setHistoricalActivities((prev) => ({
-          ...prev,
-          [lastAiMessageIdRef.current!]: [...processedEventsTimeline],
-        }));
-        // Clear the timeline events after moving them to historical
-        setProcessedEventsTimeline([]);
-        hasFinalizeEventOccurredRef.current = false;
-        lastAiMessageIdRef.current = null;
-      }
     },
     onError: (error: any) => {
       console.error("Stream error:", error);
       setDebugEvents(prev => [...prev, { type: 'onError', error, timestamp: new Date().toISOString() }]);
     },
     onUpdateEvent: (event: any) => {
-      console.log("Update event received:", event);
+      console.log("Received event:", event);
       setDebugEvents(prev => [...prev, { type: 'onUpdateEvent', event, timestamp: new Date().toISOString() }]);
-      
       let processedEvent: ProcessedEvent | null = null;
-      if (event.generate_query) {
-        processedEvent = {
-          title: "Generating Search Queries",
-          data: event.generate_query.query_list.join(", "),
-        };
-      } else if (event.web_research) {
-        const sources = event.web_research.sources_gathered || [];
-        const numSources = sources.length;
-        const uniqueLabels = [
-          ...new Set(sources.map((s: any) => s.label).filter(Boolean)),
-        ];
-        const exampleLabels = uniqueLabels.slice(0, 3).join(", ");
-        processedEvent = {
-          title: "Web Research",
-          data: `Gathered ${numSources} sources. Related to: ${
-            exampleLabels || "N/A"
-          }.`,
-        };
-      } else if (event.reflection) {
-        processedEvent = {
-          title: "Reflection",
-          data: event.reflection.is_sufficient
-            ? "Search successful, generating final answer."
-            : `Need more information, searching for ${event.reflection.follow_up_queries.join(
-                ", "
-              )}`,
-        };
-      } else if (event.finalize_answer) {
-        processedEvent = {
-          title: "Finalizing Answer",
-          data: "Composing and presenting the final answer.",
-        };
-        hasFinalizeEventOccurredRef.current = true;
+      
+      // Handle different event types based on LangGraph node names
+      if (event.event === "on_chain_start" || event.event === "on_chain_stream") {
+        const metadata = event.metadata || {};
+        const data = event.data || {};
+        
+        // Handle node-specific events
+        if (metadata.langgraph_node === "generate_query" && data.output) {
+          processedEvent = {
+            title: "Generating Search Queries",
+            data: Array.isArray(data.output.query_list) 
+              ? data.output.query_list.join(", ")
+              : "Generating search queries...",
+          };
+        } else if (metadata.langgraph_node === "web_research" && data.output) {
+          const sources = data.output.sources_gathered || [];
+          const numSources = sources.length;
+          const uniqueLabels = [
+            ...new Set(sources.map((s: any) => s.label).filter(Boolean)),
+          ];
+          const exampleLabels = uniqueLabels.slice(0, 3).join(", ");
+          processedEvent = {
+            title: "Web Research",
+            data: `Gathered ${numSources} sources. Related to: ${
+              exampleLabels || "N/A"
+            }.`,
+          };
+        } else if (metadata.langgraph_node === "reflection" && data.output) {
+          processedEvent = {
+            title: "Reflection",
+            data: data.output.is_sufficient
+              ? "Search successful, generating final answer."
+              : `Need more information, searching for ${(data.output.follow_up_queries || []).join(
+                  ", "
+                )}`,
+          };
+        } else if (metadata.langgraph_node === "finalize_answer") {
+          processedEvent = {
+            title: "Finalizing Answer",
+            data: "Composing and presenting the final answer.",
+          };
+          hasFinalizeEventOccurredRef.current = true;
+        }
       }
+      
+      // Fallback for legacy event format
+      if (!processedEvent) {
+        if (event.generate_query) {
+          processedEvent = {
+            title: "Generating Search Queries",
+            data: event.generate_query.query_list?.join(", ") || "Generating search queries...",
+          };
+        } else if (event.web_research) {
+          const sources = event.web_research.sources_gathered || [];
+          const numSources = sources.length;
+          const uniqueLabels = [
+            ...new Set(sources.map((s: any) => s.label).filter(Boolean)),
+          ];
+          const exampleLabels = uniqueLabels.slice(0, 3).join(", ");
+          processedEvent = {
+            title: "Web Research",
+            data: `Gathered ${numSources} sources. Related to: ${
+              exampleLabels || "N/A"
+            }.`,
+          };
+        } else if (event.reflection) {
+          processedEvent = {
+            title: "Reflection",
+            data: event.reflection.is_sufficient
+              ? "Search successful, generating final answer."
+              : `Need more information, searching for ${(event.reflection.follow_up_queries || []).join(
+                  ", "
+                )}`,
+          };
+        } else if (event.finalize_answer) {
+          processedEvent = {
+            title: "Finalizing Answer",
+            data: "Composing and presenting the final answer.",
+          };
+          hasFinalizeEventOccurredRef.current = true;
+        }
+      }
+      
       if (processedEvent) {
         console.log("Adding processed event:", processedEvent);
-        setProcessedEventsTimeline((prevEvents) => {
-          const newEvents = [...prevEvents, processedEvent!];
-          console.log("Updated timeline events:", newEvents);
-          return newEvents;
-        });
+        setProcessedEventsTimeline((prevEvents) => [
+          ...prevEvents,
+          processedEvent!,
+        ]);
       }
     },
   });
-
-  // Track the last AI message ID
-  useEffect(() => {
-    const aiMessages = thread.messages.filter(msg => msg.type === "ai");
-    if (aiMessages.length > 0) {
-      const lastAiMessage = aiMessages[aiMessages.length - 1];
-      if (lastAiMessage.id) {
-        lastAiMessageIdRef.current = lastAiMessage.id;
-      }
-    }
-  }, [thread.messages]);
 
   useEffect(() => {
     if (scrollAreaRef.current) {
@@ -120,6 +143,25 @@ export default function App() {
       }
     }
   }, [thread.messages]);
+
+  useEffect(() => {
+    if (
+      hasFinalizeEventOccurredRef.current &&
+      !thread.isLoading &&
+      thread.messages.length > 0
+    ) {
+      const lastMessage = thread.messages[thread.messages.length - 1];
+      if (lastMessage && lastMessage.type === "ai" && lastMessage.id) {
+        setHistoricalActivities((prev) => ({
+          ...prev,
+          [lastMessage.id!]: [...processedEventsTimeline],
+        }));
+        // Clear the live timeline now that it's saved to history
+        setProcessedEventsTimeline([]);
+      }
+      hasFinalizeEventOccurredRef.current = false;
+    }
+  }, [thread.messages, thread.isLoading, processedEventsTimeline]);
 
   // Debug logging
   useEffect(() => {
@@ -136,7 +178,6 @@ export default function App() {
       setProcessedEventsTimeline([]);
       setDebugEvents([]);
       hasFinalizeEventOccurredRef.current = false;
-      lastAiMessageIdRef.current = null;
 
       // convert effort to, initial_search_query_count and max_research_loops
       // low means max 1 loop and 1 query
