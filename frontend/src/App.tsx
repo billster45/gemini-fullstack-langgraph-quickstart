@@ -17,6 +17,7 @@ export default function App() {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const hasFinalizeEventOccurredRef = useRef(false);
   const lastAiMessageIdRef = useRef<string | null>(null);
+  const pendingEventsRef = useRef<ProcessedEvent[]>([]);
 
   const thread = useStream<{
     messages: Message[];
@@ -32,18 +33,27 @@ export default function App() {
     onFinish: (event: any) => {
       console.log("Stream finished:", event);
       setDebugEvents(prev => [...prev, { type: 'onFinish', event, timestamp: new Date().toISOString() }]);
-      // Move events to historical when the stream is completely finished
-      if (hasFinalizeEventOccurredRef.current && lastAiMessageIdRef.current) {
-        console.log("Moving events to historical for message:", lastAiMessageIdRef.current);
-        setHistoricalActivities((prev) => ({
-          ...prev,
-          [lastAiMessageIdRef.current!]: [...processedEventsTimeline],
-        }));
-        // Clear the timeline events after moving them to historical
-        setProcessedEventsTimeline([]);
-        hasFinalizeEventOccurredRef.current = false;
-        lastAiMessageIdRef.current = null;
-      }
+      
+      // Use a timeout to ensure the UI has rendered the AI message before moving events
+      setTimeout(() => {
+        if (hasFinalizeEventOccurredRef.current && lastAiMessageIdRef.current) {
+          console.log("Moving events to historical for message:", lastAiMessageIdRef.current);
+          
+          // Use the pending events ref to ensure we have all events
+          const eventsToMove = [...pendingEventsRef.current];
+          
+          setHistoricalActivities((prev) => ({
+            ...prev,
+            [lastAiMessageIdRef.current!]: eventsToMove,
+          }));
+          
+          // Clear the timeline events after moving them to historical
+          setProcessedEventsTimeline([]);
+          pendingEventsRef.current = [];
+          hasFinalizeEventOccurredRef.current = false;
+          lastAiMessageIdRef.current = null;
+        }
+      }, 100); // Small delay to ensure UI updates
     },
     onError: (error: any) => {
       console.error("Stream error:", error);
@@ -92,6 +102,7 @@ export default function App() {
         console.log("Adding processed event:", processedEvent);
         setProcessedEventsTimeline((prevEvents) => {
           const newEvents = [...prevEvents, processedEvent!];
+          pendingEventsRef.current = newEvents; // Keep a ref copy
           console.log("Updated timeline events:", newEvents);
           return newEvents;
         });
@@ -135,6 +146,7 @@ export default function App() {
       if (!submittedInputValue.trim()) return;
       setProcessedEventsTimeline([]);
       setDebugEvents([]);
+      pendingEventsRef.current = [];
       hasFinalizeEventOccurredRef.current = false;
       lastAiMessageIdRef.current = null;
 
